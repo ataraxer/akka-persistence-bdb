@@ -4,9 +4,9 @@ name := "akka-persistence-bdb"
 
 version := "1.0.1"
 
-scalaVersion := "2.10.4"
+scalaVersion := "2.11.6"
 
-crossScalaVersions := Seq("2.11.1")
+crossScalaVersions := Seq("2.10.5")
 
 parallelExecution in Test := false
 
@@ -24,8 +24,7 @@ scalacOptions ++= Seq(
   "-language:implicitConversions",
   "-language:reflectiveCalls",
   "-language:postfixOps",
-  "-Yinline-warnings"
-)
+  "-Yinline-warnings")
 
 publishMavenStyle := true
 
@@ -33,24 +32,19 @@ pomIncludeRepository := { _ => false }
 
 publishTo <<= version {
   (v: String) =>
-      Some("bintray" at "https://api.bintray.com/maven/bseibel/release/akka-persistence-bdb")
+    Some("bintray" at "https://api.bintray.com/maven/bseibel/release/akka-persistence-bdb")
 }
 
 credentials += Credentials(Path.userHome / ".ivy2" / ".credentials-bintree")
 
 resolvers += "krasserm at bintray" at "http://dl.bintray.com/krasserm/maven"
 
-libraryDependencies += "com.github.krasserm" %% "akka-persistence-testkit" % "0.3.3" % "test"
-
-libraryDependencies += "com.sleepycat" % "je" % "6.0.11"
-
-libraryDependencies += "com.typesafe.akka" %% "akka-persistence-experimental" % "2.3.4" % "compile"
-
-libraryDependencies += "com.typesafe.akka" %% "akka-testkit" % "2.3.4" % "test"
-
-libraryDependencies += "org.scalatest" %% "scalatest" % "2.1.4" % "test"
-
-libraryDependencies += "commons-io" % "commons-io" % "2.4" % "test"
-
-libraryDependencies += "commons-codec" % "commons-codec" % "1.9" % "compile"
+libraryDependencies ++= Seq(
+  "com.github.krasserm" %% "akka-persistence-testkit" % "0.3.3" % "test",
+  "com.sleepycat" % "je" % "6.0.11",
+  "com.typesafe.akka" %% "akka-persistence-experimental" % "2.3.4" % "compile",
+  "com.typesafe.akka" %% "akka-testkit" % "2.3.4" % "test",
+  "org.scalatest" %% "scalatest" % "2.1.4" % "test",
+  "commons-io" % "commons-io" % "2.4" % "test",
+  "commons-codec" % "commons-codec" % "1.9" % "compile")
 
