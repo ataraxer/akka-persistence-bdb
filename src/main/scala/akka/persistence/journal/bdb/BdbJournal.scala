@@ -98,7 +98,7 @@ class BdbJournal
 
     withTransaction { tx =>
       messages foreach { m =>
-        val pid = getPersistenceId(m.processorId)
+        val pid = getPersistenceId(m.persistenceId)
 
         val operationStatus = db.put(tx, getKey(pid, m.sequenceNr), bdbSerialize(m))
 
@@ -138,7 +138,7 @@ class BdbJournal
 
         val operationStatus = db.put(
           tx,
-          getKey(c.processorId, c.sequenceNr),
+          getKey(c.persistenceId, c.sequenceNr),
           entry)
 
         if (operationStatus != OperationStatus.SUCCESS) {
@@ -152,7 +152,7 @@ class BdbJournal
   def deleteMessages(messageIds: Seq[PersistentId], permanent: Boolean): Unit = {
     withTransaction { tx =>
       messageIds foreach { m =>
-        deleteKey(tx, getKey(m.processorId, m.sequenceNr), permanent)
+        deleteKey(tx, getKey(m.persistenceId, m.sequenceNr), permanent)
       }
     }
   }
@@ -160,46 +160,46 @@ class BdbJournal
 
   private[bdb] def keyRangeCheck(
     entry: DatabaseEntry,
-    processorId: Long,
+    persistenceId: Long,
     minSeqno: Long,
     maxSeqno: Long): Boolean =
   {
     val buf = ByteBuffer.wrap(entry.getData)
     val pid = buf.getLong
     val sno = buf.getLong
-    processorId == pid && sno >= minSeqno && sno <= maxSeqno
+    persistenceId == pid && sno >= minSeqno && sno <= maxSeqno
   }
 
 
   def deleteMessagesTo(
-    processorId: String,
+    persistenceId: String,
     toSequenceNr: Long,
     permanent: Boolean): Unit =
   {
     @tailrec
-    def iterateCursor(cursor: Cursor, processorId: Long): Unit = {
+    def iterateCursor(cursor: Cursor, persistenceId: Long): Unit = {
       val dbKey = new DatabaseEntry
       val dbVal = new DatabaseEntry
 
       cursor.getCurrent(dbKey, dbVal, LockMode.DEFAULT)
 
-      if (keyRangeCheck(dbKey, processorId, 1L, toSequenceNr)) {
+      if (keyRangeCheck(dbKey, persistenceId, 1L, toSequenceNr)) {
         deleteKey(cursor, dbKey, permanent)
         if (cursor.getNextNoDup(dbKey, dbVal, LockMode.DEFAULT) == OperationStatus.SUCCESS)
-          iterateCursor(cursor, processorId)
+          iterateCursor(cursor, persistenceId)
       }
     }
 
     withTransactionalCursor(db) { (cursor, tx) =>
       val operationStatus = {
         cursor.getSearchKeyRange(
-        getKey(processorId, 1L),
+        getKey(persistenceId, 1L),
         new DatabaseEntry,
         LockMode.DEFAULT)
       }
 
       if (operationStatus == OperationStatus.SUCCESS) {
-        iterateCursor(cursor, getPersistenceId(processorId))
+        iterateCursor(cursor, getPersistenceId(persistenceId))
       }
     }
   }
