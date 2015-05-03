@@ -51,7 +51,6 @@ trait BdbEnvironment extends Actor {
 class BdbJournal
   extends SyncWriteJournal
   with BdbEnvironment
-  with BdbKeys
   with BdbReplay
 {
   import BdbClient._
@@ -95,26 +94,36 @@ class BdbJournal
   }
 
 
+  private[bdb] def maxSeqnoKeyFor(persistenceId: String) = keyFor(persistenceId, 0L)
+
+
+  private[bdb] def keyFor(persistenceId: String, sequenceNo: Long): DatabaseEntry = {
+    val persitenceIdBytes = persistenceId.getBytes("UTF-8")
+    val buffer = ByteBuffer.allocate(4 + 8 + persitenceIdBytes.size)
+    buffer.putInt(persitenceIdBytes.size)
+    buffer.put(persitenceIdBytes)
+    buffer.putLong(sequenceNo)
+    new DatabaseEntry(buffer.array)
+  }
+
+
   def writeMessages(messages: Seq[PersistentRepr]): Unit = {
-    var max = Map.empty[Long, Long].withDefaultValue(-1L)
+    var max = Map.empty[String, Long].withDefaultValue(-1L)
 
     db withTransaction { implicit tx =>
       messages foreach { m =>
-        val pid = getPersistenceId(m.persistenceId)
-
-        val operation = db.putKey(getKey(pid, m.sequenceNr), bdbSerialize(m))
+        val pid = m.persistenceId
+        val operation = db.putKey(keyFor(pid, m.sequenceNr), bdbSerialize(m))
 
         if (operation.hasFailed) {
           throw new IllegalStateException("Failed to write message to database")
         }
 
-        if (max(pid) < m.sequenceNr) {
-          max += (pid -> m.sequenceNr)
-        }
+        if (max(pid) < m.sequenceNr) max += (pid -> m.sequenceNr)
       }
 
       for ((p, m) <- max) {
-        val key = getMaxSeqnoKey(p)
+        val key = maxSeqnoKeyFor(p)
         db.deleteKey(key)
         val entry = new DatabaseEntry(ByteBuffer.allocate(8).putLong(m).array)
 
@@ -138,7 +147,7 @@ class BdbJournal
           .put(cid)
           .array)
 
-        val operation = db.putKey(getKey(c.persistenceId, c.sequenceNr), entry)
+        val operation = db.putKey(keyFor(c.persistenceId, c.sequenceNr), entry)
 
         if (operation.hasFailed) {
           throw new IllegalStateException("Failed to write confirmation to database.")
@@ -151,7 +160,7 @@ class BdbJournal
   def deleteMessages(messageIds: Seq[PersistentId], permanent: Boolean): Unit = {
     db withTransaction { implicit tx =>
       messageIds foreach { m =>
-        db.deleteKey(getKey(m.persistenceId, m.sequenceNr), permanent)
+        db.deleteKey(keyFor(m.persistenceId, m.sequenceNr), permanent)
       }
     }
   }
@@ -159,12 +168,15 @@ class BdbJournal
 
   private[bdb] def keyRangeCheck(
     entry: DatabaseEntry,
-    persistenceId: Long,
+    persistenceId: String,
     minSeqno: Long,
     maxSeqno: Long): Boolean =
   {
     val buf = ByteBuffer.wrap(entry.getData)
-    val pid = buf.getLong
+    val pidSize = buf.getInt
+    val pidBytes = new Array[Byte](pidSize)
+    buf.get(pidBytes)
+    val pid = new String(pidBytes, "UTF-8")
     val sno = buf.getLong
     persistenceId == pid && sno >= minSeqno && sno <= maxSeqno
   }
@@ -176,7 +188,7 @@ class BdbJournal
     permanent: Boolean): Unit =
   {
     @tailrec
-    def iterateCursor(cursor: Cursor, persistenceId: Long): Unit = {
+    def iterateCursor(cursor: Cursor, persistenceId: String): Unit = {
       val BdbSuccess((dbKey, dbVal)) = cursor.getCurrentKey(LockMode.DEFAULT)
 
       if (keyRangeCheck(dbKey, persistenceId, 1L, toSequenceNr)) {
@@ -189,13 +201,13 @@ class BdbJournal
     db withTransactionalCursor { cursor =>
       val operationStatus = {
         cursor.getSearchKeyRange(
-        getKey(persistenceId, 1L),
+        keyFor(persistenceId, 1L),
         new DatabaseEntry,
         LockMode.DEFAULT)
       }
 
       if (operationStatus == OperationStatus.SUCCESS) {
-        iterateCursor(cursor, getPersistenceId(persistenceId))
+        iterateCursor(cursor, persistenceId)
       }
     }
   }
