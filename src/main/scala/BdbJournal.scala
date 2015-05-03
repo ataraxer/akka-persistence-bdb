@@ -11,6 +11,7 @@ import akka.serialization.SerializationExtension
 import com.sleepycat.je._
 
 import scala.annotation.tailrec
+import scala.collection.mutable
 import scala.collection.immutable.Seq
 
 
@@ -108,24 +109,23 @@ class BdbJournal
 
 
   def writeMessages(messages: Seq[PersistentRepr]): Unit = {
-    var max = Map.empty[String, Long].withDefaultValue(-1L)
+    val maxSeqNo = mutable.Map.empty[String, Long].withDefaultValue(-1L)
 
     db withTransaction { implicit tx =>
       messages foreach { m =>
         val pid = m.persistenceId
         val operation = db.putKey(keyFor(pid, m.sequenceNr), bdbSerialize(m))
+        maxSeqNo += (pid -> m.sequenceNr)
 
         if (operation.hasFailed) {
           throw new IllegalStateException("Failed to write message to database")
         }
-
-        if (max(pid) < m.sequenceNr) max += (pid -> m.sequenceNr)
       }
 
-      for ((p, m) <- max) {
-        val key = maxSeqnoKeyFor(p)
+      for ((pid, max) <- maxSeqNo) {
+        val key = maxSeqnoKeyFor(pid)
+        val entry = new DatabaseEntry(ByteBuffer.allocate(8).putLong(max).array)
         db.deleteKey(key)
-        val entry = new DatabaseEntry(ByteBuffer.allocate(8).putLong(m).array)
 
         if (db.putKey(key, entry).hasFailed) {
           throw new IllegalStateException("Failed to write maxSeqno entry to database.")
@@ -135,17 +135,18 @@ class BdbJournal
   }
 
 
+  /*
+   * TODO: @deprecated remove after Akka 2.4.0 release
+   */
   def writeConfirmations(confirmations: Seq[PersistentConfirmation]): Unit = {
     db withTransaction { implicit tx =>
       confirmations foreach { c =>
         val cid = c.channelId.getBytes("UTF-8")
 
-        val entry = new DatabaseEntry(
-          ByteBuffer
-          .allocate(cid.size + 1)
-          .put(ConfirmMagicByte)
-          .put(cid)
-          .array)
+        val buffer = ByteBuffer.allocate(1 + cid.size)
+        buffer.put(ConfirmMagicByte)
+        buffer.put(cid)
+        val entry = new DatabaseEntry(buffer.array)
 
         val operation = db.putKey(keyFor(c.persistenceId, c.sequenceNr), entry)
 
@@ -157,6 +158,9 @@ class BdbJournal
   }
 
 
+  /*
+   * TODO: @deprecated remove after Akka 2.4.0 release
+   */
   def deleteMessages(messageIds: Seq[PersistentId], permanent: Boolean): Unit = {
     db withTransaction { implicit tx =>
       messageIds foreach { m =>
@@ -188,26 +192,20 @@ class BdbJournal
     permanent: Boolean): Unit =
   {
     @tailrec
-    def iterateCursor(cursor: Cursor, persistenceId: String): Unit = {
-      val BdbSuccess((dbKey, dbVal)) = cursor.getCurrentKey(LockMode.DEFAULT)
+    def iterateCursor(cursor: Cursor): Unit = {
+      val BdbSuccess(entry) = cursor.getCurrentKey()
 
-      if (keyRangeCheck(dbKey, persistenceId, 1L, toSequenceNr)) {
-        cursor.deleteKey(dbKey, permanent)
-        if (cursor.getNextNoDup(dbKey, dbVal, LockMode.DEFAULT) == OperationStatus.SUCCESS)
-          iterateCursor(cursor, persistenceId)
+      if (keyRangeCheck(entry.key, persistenceId, 1L, toSequenceNr)) {
+        cursor.deleteKey(entry.key, permanent)
+        if (cursor.nextKey().isSuccess) {
+          iterateCursor(cursor)
+        }
       }
     }
 
     db withTransactionalCursor { cursor =>
-      val operationStatus = {
-        cursor.getSearchKeyRange(
-        keyFor(persistenceId, 1L),
-        new DatabaseEntry,
-        LockMode.DEFAULT)
-      }
-
-      if (operationStatus == OperationStatus.SUCCESS) {
-        iterateCursor(cursor, persistenceId)
+      if (cursor.findKey(keyFor(persistenceId, 1L)).isSuccess) {
+        iterateCursor(cursor)
       }
     }
   }
