@@ -102,9 +102,9 @@ class BdbJournal
       messages foreach { m =>
         val pid = getPersistenceId(m.persistenceId)
 
-        val operationStatus = db.putKey(getKey(pid, m.sequenceNr), bdbSerialize(m))
+        val operation = db.putKey(getKey(pid, m.sequenceNr), bdbSerialize(m))
 
-        if (operationStatus != OperationStatus.SUCCESS) {
+        if (operation.hasFailed) {
           throw new IllegalStateException("Failed to write message to database")
         }
 
@@ -118,7 +118,7 @@ class BdbJournal
         db.deleteKey(key)
         val entry = new DatabaseEntry(ByteBuffer.allocate(8).putLong(m).array)
 
-        if (db.putKey(key, entry) != OperationStatus.SUCCESS) {
+        if (db.putKey(key, entry).hasFailed) {
           throw new IllegalStateException("Failed to write maxSeqno entry to database.")
         }
       }
@@ -138,11 +138,9 @@ class BdbJournal
           .put(cid)
           .array)
 
-        val operationStatus = db.putKey(
-          getKey(c.persistenceId, c.sequenceNr),
-          entry)
+        val operation = db.putKey(getKey(c.persistenceId, c.sequenceNr), entry)
 
-        if (operationStatus != OperationStatus.SUCCESS) {
+        if (operation.hasFailed) {
           throw new IllegalStateException("Failed to write confirmation to database.")
         }
       }
@@ -179,10 +177,7 @@ class BdbJournal
   {
     @tailrec
     def iterateCursor(cursor: Cursor, persistenceId: Long): Unit = {
-      val dbKey = new DatabaseEntry
-      val dbVal = new DatabaseEntry
-
-      cursor.getKey(dbKey, dbVal, LockMode.DEFAULT)
+      val BdbSuccess((dbKey, dbVal)) = cursor.getCurrentKey(LockMode.DEFAULT)
 
       if (keyRangeCheck(dbKey, persistenceId, 1L, toSequenceNr)) {
         cursor.deleteKey(dbKey, permanent)
