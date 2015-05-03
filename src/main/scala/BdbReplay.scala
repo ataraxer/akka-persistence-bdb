@@ -32,12 +32,10 @@ trait BdbReplay {
     max: Long)
     (replayCallback: PersistentRepr => Unit): Future[Unit] =
   {
-    val pid = getPersistenceId(persistenceId)
-
     @tailrec
     def replay(
       cursor: Cursor,
-      persistenceId: Long,
+      persistenceId: String,
       count: Long)
       (replayCallback: PersistentRepr => Unit): Unit =
     {
@@ -97,12 +95,12 @@ trait BdbReplay {
     Future {
       db withTransactionalCursor { cursor =>
         val operationStatus = cursor.getSearchKeyRange(
-          getKey(pid, fromSequenceNr),
+          keyFor(persistenceId, fromSequenceNr),
           new DatabaseEntry,
           LockMode.DEFAULT)
 
         if (operationStatus == OperationStatus.SUCCESS) {
-          replay(cursor, pid, 0L)(replayCallback)
+          replay(cursor, persistenceId, 0L)(replayCallback)
         }
       }
     }
@@ -112,10 +110,9 @@ trait BdbReplay {
   def asyncReadHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Future[Long] = {
     Future {
       db withTransaction { implicit tx =>
-        val pid = getPersistenceId(persistenceId)
-        val operation = db.getKey(getMaxSeqnoKey(pid), LockMode.DEFAULT)
+        val operation = db.getKey(maxSeqnoKeyFor(persistenceId), LockMode.DEFAULT)
 
-        operation map { case (dbKey, dbVal) =>
+        operation map { case (_, dbVal) =>
           ByteBuffer.wrap(dbVal.getData).getLong
         } getOrElse 0L
       }
