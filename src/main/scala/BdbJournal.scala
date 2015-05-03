@@ -61,14 +61,6 @@ class BdbJournal
   val serialization = SerializationExtension(context.system)
 
 
-  private[bdb] val dbConfig = {
-    new DatabaseConfig()
-    .setAllowCreate(true)
-    .setTransactional(true)
-    .setSortedDuplicates(true)
-  }
-
-
   private[bdb] val txConfig = {
     new TransactionConfig()
     .setDurability(
@@ -78,7 +70,18 @@ class BdbJournal
   }
 
 
-  private[bdb] val db = env.openDatabase(null, "journal", dbConfig)
+  private[bdb] val db = {
+    val dbConfig = {
+      new DatabaseConfig()
+      .setAllowCreate(true)
+      .setTransactional(true)
+      .setSortedDuplicates(true)
+    }
+
+    val transaction = null.asInstanceOf[Transaction]
+
+    env.openDatabase(transaction, "journal", dbConfig)
+  }
 
 
   override def postStop(): Unit = {
