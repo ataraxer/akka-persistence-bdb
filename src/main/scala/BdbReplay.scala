@@ -66,10 +66,7 @@ trait BdbReplay {
         } else p
       }
 
-      val dbKey = new DatabaseEntry
-      val dbVal = new DatabaseEntry
-
-      cursor.getKey(dbKey, dbVal, LockMode.DEFAULT)
+      val BdbSuccess((dbKey, dbVal)) = cursor.getCurrentKey(LockMode.DEFAULT)
 
       val rangeCheck = keyRangeCheck(
         dbKey,
@@ -116,12 +113,11 @@ trait BdbReplay {
     Future {
       db withTransaction { implicit tx =>
         val pid = getPersistenceId(persistenceId)
-        val dbVal = new DatabaseEntry
-        val operationStatus = db.getKey(getMaxSeqnoKey(pid), dbVal, LockMode.DEFAULT)
+        val operation = db.getKey(getMaxSeqnoKey(pid), LockMode.DEFAULT)
 
-        if (operationStatus == OperationStatus.SUCCESS) {
+        operation map { case (dbKey, dbVal) =>
           ByteBuffer.wrap(dbVal.getData).getLong
-        } else 0L
+        } getOrElse 0L
       }
     }
   }
