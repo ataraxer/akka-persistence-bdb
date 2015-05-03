@@ -28,32 +28,20 @@ private[bdb] trait BdbKeys extends Actor {
   val mappingDb = env.openDatabase(NoTransaction, "processorIdMapping", mappingDbConfig)
 
 
-  def getKey(processorId: String, sequenceNo: Long): DatabaseEntry = {
+  def getKey(processorId: Long, sequenceNo: Long): DatabaseEntry = {
     val buffer = ByteBuffer.allocate(16)
-    buffer.putLong(getPersistenceId(processorId))
+    buffer.putLong(processorId)
     buffer.putLong(sequenceNo)
     new DatabaseEntry(buffer.array)
   }
 
 
-  def getKey(processorId: Long, seqNo: Long): DatabaseEntry = {
-    new DatabaseEntry(
-      ByteBuffer
-      .allocate(16)
-      .putLong(processorId)
-      .putLong(seqNo)
-      .array)
+  def getKey(processorId: String, sequenceNo: Long): DatabaseEntry = {
+    getKey(getPersistenceId(processorId), sequenceNo)
   }
 
 
-  def getMaxSeqnoKey(processorId: Long): DatabaseEntry = {
-    new DatabaseEntry(
-      ByteBuffer
-      .allocate(16)
-      .putLong(0L)
-      .putLong(processorId)
-      .array)
-  }
+  def getMaxSeqnoKey(processorId: Long) = getKey(processorId, 0L)
 
 
   def getPersistenceId(persistenceId: String): Long = {
