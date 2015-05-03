@@ -12,9 +12,12 @@ import scala.annotation.tailrec
 private[bdb] trait BdbKeys extends Actor {
   this: BdbJournal =>
 
+  import BdbClient._
+
   var currentId = new AtomicLong(10L)
 
   var mapping = Map.empty[String, Long]
+
 
   val mappingDbConfig = {
     new DatabaseConfig()
@@ -22,7 +25,7 @@ private[bdb] trait BdbKeys extends Actor {
     .setTransactional(true)
   }
 
-  val mappingDb = env.openDatabase(null, "processorIdMapping", mappingDbConfig)
+  val mappingDb = env.openDatabase(NoTransaction, "processorIdMapping", mappingDbConfig)
 
 
   def getKey(processorId: String, sequenceNo: Long): DatabaseEntry = {
@@ -58,18 +61,18 @@ private[bdb] trait BdbKeys extends Actor {
       val nextId = currentId.addAndGet(1L)
       val dbKey = new DatabaseEntry(persistenceId.getBytes("UTF-8"))
       val dbVal = new DatabaseEntry(ByteBuffer.allocate(8).putLong(nextId).array)
-      val tx = env.beginTransaction(null, null)
 
-      try {
-        if (mappingDb.put(tx, dbKey, dbVal) == OperationStatus.KEYEXIST) {
+      // TODO: can we use `txConfig` from `BdbJournal`?
+      implicit val txConfig = NoTransactionConfig
+
+      mappingDb withTransaction { implicit tx =>
+        if (mappingDb.putKey(dbKey, dbVal) == OperationStatus.KEYEXIST) {
           throw new IllegalStateException(
             "Attempted to insert already existing persistenceId mapping.")
         }
 
         mapping = mapping + (persistenceId -> nextId)
         nextId
-      } finally {
-        cleanupTx(tx)
       }
     }
   }
@@ -95,7 +98,7 @@ private[bdb] trait BdbKeys extends Actor {
       }
     }
 
-    withTransactionalCursor(mappingDb) { (cursor, tx) =>
+    mappingDb withTransactionalCursor { cursor =>
       mapping = cursorIterate(first = true, cursor, Map.empty)
     }
   }

@@ -54,14 +54,12 @@ class BdbJournal
   with BdbKeys
   with BdbReplay
 {
-  private[bdb] final val DataMagicByte = 0x0.toByte
-  private[bdb] final val ConfirmMagicByte = 0x1.toByte
-  private[bdb] final val DeleteMagicByte = 0x2.toByte
+  import BdbClient._
 
   val serialization = SerializationExtension(context.system)
 
 
-  private[bdb] val txConfig = {
+  private[bdb] implicit val txConfig = {
     new TransactionConfig()
     .setDurability(
       if (config.getBoolean("sync")) Durability.COMMIT_SYNC
@@ -78,9 +76,7 @@ class BdbJournal
       .setSortedDuplicates(true)
     }
 
-    val transaction = null.asInstanceOf[Transaction]
-
-    env.openDatabase(transaction, "journal", dbConfig)
+    env.openDatabase(NoTransaction, "journal", dbConfig)
   }
 
 
@@ -102,11 +98,11 @@ class BdbJournal
   def writeMessages(messages: Seq[PersistentRepr]): Unit = {
     var max = Map.empty[Long, Long].withDefaultValue(-1L)
 
-    withTransaction { tx =>
+    db withTransaction { implicit tx =>
       messages foreach { m =>
         val pid = getPersistenceId(m.persistenceId)
 
-        val operationStatus = db.put(tx, getKey(pid, m.sequenceNr), bdbSerialize(m))
+        val operationStatus = db.putKey(getKey(pid, m.sequenceNr), bdbSerialize(m))
 
         if (operationStatus != OperationStatus.SUCCESS) {
           throw new IllegalStateException("Failed to write message to database")
@@ -119,10 +115,10 @@ class BdbJournal
 
       for ((p, m) <- max) {
         val key = getMaxSeqnoKey(p)
-        db.delete(tx, key)
+        db.deleteKey(key)
         val entry = new DatabaseEntry(ByteBuffer.allocate(8).putLong(m).array)
 
-        if (db.put(tx, key, entry) != OperationStatus.SUCCESS) {
+        if (db.putKey(key, entry) != OperationStatus.SUCCESS) {
           throw new IllegalStateException("Failed to write maxSeqno entry to database.")
         }
       }
@@ -131,7 +127,7 @@ class BdbJournal
 
 
   def writeConfirmations(confirmations: Seq[PersistentConfirmation]): Unit = {
-    withTransaction { tx =>
+    db withTransaction { implicit tx =>
       confirmations foreach { c =>
         val cid = c.channelId.getBytes("UTF-8")
 
@@ -142,8 +138,7 @@ class BdbJournal
           .put(cid)
           .array)
 
-        val operationStatus = db.put(
-          tx,
+        val operationStatus = db.putKey(
           getKey(c.persistenceId, c.sequenceNr),
           entry)
 
@@ -156,9 +151,9 @@ class BdbJournal
 
 
   def deleteMessages(messageIds: Seq[PersistentId], permanent: Boolean): Unit = {
-    withTransaction { tx =>
+    db withTransaction { implicit tx =>
       messageIds foreach { m =>
-        deleteKey(tx, getKey(m.persistenceId, m.sequenceNr), permanent)
+        db.deleteKey(getKey(m.persistenceId, m.sequenceNr), permanent)
       }
     }
   }
@@ -187,16 +182,16 @@ class BdbJournal
       val dbKey = new DatabaseEntry
       val dbVal = new DatabaseEntry
 
-      cursor.getCurrent(dbKey, dbVal, LockMode.DEFAULT)
+      cursor.getKey(dbKey, dbVal, LockMode.DEFAULT)
 
       if (keyRangeCheck(dbKey, persistenceId, 1L, toSequenceNr)) {
-        deleteKey(cursor, dbKey, permanent)
+        cursor.deleteKey(dbKey, permanent)
         if (cursor.getNextNoDup(dbKey, dbVal, LockMode.DEFAULT) == OperationStatus.SUCCESS)
           iterateCursor(cursor, persistenceId)
       }
     }
 
-    withTransactionalCursor(db) { (cursor, tx) =>
+    db withTransactionalCursor { cursor =>
       val operationStatus = {
         cursor.getSearchKeyRange(
         getKey(persistenceId, 1L),
@@ -208,58 +203,6 @@ class BdbJournal
         iterateCursor(cursor, getPersistenceId(persistenceId))
       }
     }
-  }
-
-
-  private[this] def deleteKey(
-    cursor: Cursor,
-    key: DatabaseEntry,
-    permanent: Boolean): Unit =
-  {
-    if (permanent) {
-      cursor.delete()
-    } else {
-      cursor.put(key, new DatabaseEntry(Array(DeleteMagicByte)))
-    }
-  }
-
-
-  private[this] def deleteKey(
-    tx: Transaction,
-    key: DatabaseEntry,
-    permanent: Boolean): Unit =
-  {
-    if (permanent) {
-      db.delete(tx, key)
-    } else {
-      db.put(tx, key, new DatabaseEntry(Array(DeleteMagicByte)))
-    }
-  }
-
-
-  private[bdb] def withTransaction[T](p: Transaction => T): T = {
-    val tx = env.beginTransaction(null, txConfig)
-    try p(tx) finally cleanupTx(tx)
-  }
-
-
-  private[bdb] def withTransactionalCursor[T]
-    (db: Database)
-    (p: (Cursor, Transaction) => T): Unit =
-  {
-    val tx = env.beginTransaction(null, txConfig)
-    val cursor = db.openCursor(tx, CursorConfig.READ_COMMITTED)
-    try {
-      p(cursor, tx)
-    } finally {
-      cursor.close()
-      cleanupTx(tx)
-    }
-  }
-
-
-  private[bdb] def cleanupTx(tx: Transaction): Unit = {
-    if (tx.isValid) tx.commit() else tx.abort()
   }
 }
 
