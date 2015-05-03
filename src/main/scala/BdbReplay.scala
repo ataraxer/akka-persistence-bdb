@@ -13,6 +13,8 @@ import scala.concurrent.Future
 trait BdbReplay {
   this: BdbJournal with SyncWriteJournal =>
 
+  import BdbClient._
+
   private[this] lazy implicit val replayDispatcher = {
     context.system.dispatchers.lookup(config.getString("replay-dispatcher"))
   }
@@ -34,7 +36,6 @@ trait BdbReplay {
 
     @tailrec
     def replay(
-      tx: Transaction,
       cursor: Cursor,
       persistenceId: Long,
       count: Long)
@@ -68,7 +69,7 @@ trait BdbReplay {
       val dbKey = new DatabaseEntry
       val dbVal = new DatabaseEntry
 
-      cursor.getCurrent(dbKey, dbVal, LockMode.DEFAULT)
+      cursor.getKey(dbKey, dbVal, LockMode.DEFAULT)
 
       val rangeCheck = keyRangeCheck(
         dbKey,
@@ -90,21 +91,21 @@ trait BdbReplay {
         val operationStatus = cursor.getNextNoDup(dbKey, dbVal, LockMode.DEFAULT)
 
         if (operationStatus == OperationStatus.SUCCESS) {
-          replay(tx, cursor, persistenceId, count + 1)(replayCallback)
+          replay(cursor, persistenceId, count + 1)(replayCallback)
         }
       }
     }
 
 
     Future {
-      withTransactionalCursor(db) { (cursor, tx) =>
+      db withTransactionalCursor { cursor =>
         val operationStatus = cursor.getSearchKeyRange(
           getKey(pid, fromSequenceNr),
           new DatabaseEntry,
           LockMode.DEFAULT)
 
         if (operationStatus == OperationStatus.SUCCESS) {
-          replay(tx, cursor, pid, 0L)(replayCallback)
+          replay(cursor, pid, 0L)(replayCallback)
         }
       }
     }
@@ -113,10 +114,10 @@ trait BdbReplay {
 
   def asyncReadHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Future[Long] = {
     Future {
-      withTransaction { tx =>
+      db withTransaction { implicit tx =>
         val pid = getPersistenceId(persistenceId)
         val dbVal = new DatabaseEntry
-        val operationStatus = db.get(tx, getMaxSeqnoKey(pid), dbVal, LockMode.DEFAULT)
+        val operationStatus = db.getKey(getMaxSeqnoKey(pid), dbVal, LockMode.DEFAULT)
 
         if (operationStatus == OperationStatus.SUCCESS) {
           ByteBuffer.wrap(dbVal.getData).getLong
