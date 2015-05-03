@@ -8,60 +8,74 @@ object BdbClient {
   val ConfirmMagicByte = 0x1.toByte
   val DeleteMagicByte = 0x2.toByte
 
-  def deletedEntry = new DatabaseEntry(Array(DeleteMagicByte))
+  def ConfirmFlag = new DatabaseEntry(Array(ConfirmMagicByte))
+  def DeleteFlag = new DatabaseEntry(Array(DeleteMagicByte))
 
   val NoTransaction = null.asInstanceOf[Transaction]
   val NoTransactionConfig = null.asInstanceOf[TransactionConfig]
 
   type BdbKey = DatabaseEntry
   type BdbValue = DatabaseEntry
-  type BdbEntry = (BdbKey, BdbValue)
+  case class BdbEntry(key: BdbKey, value: BdbValue)
 
 
-  trait BdbOps extends Any {
-    def deleteKey(key: BdbKey, permanent: Boolean): BdbOperation[BdbKey]
-    def putKey(key: DatabaseEntry, data: DatabaseEntry): BdbOperation[BdbEntry]
-    def getKey(key: DatabaseEntry, lockMode: LockMode): BdbOperation[BdbEntry]
-  }
-
-
-  implicit class RichCursor(val cursor: Cursor) extends AnyVal with BdbOps {
+  implicit class RichCursor(val cursor: Cursor) extends AnyVal {
     def deleteKey(key: BdbKey, permanent: Boolean = true) = {
-      val status = if (permanent) cursor.delete() else cursor.put(key, deletedEntry)
+      val status = if (permanent) cursor.delete() else cursor.put(key, DeleteFlag)
       BdbOperation(status, key)
     }
 
     def putKey(key: BdbKey, data: BdbValue) = {
-      BdbOperation(cursor.put(key, data), key -> data)
+      BdbOperation(cursor.put(key, data), BdbEntry(key, data))
     }
 
-    def getKey(key: BdbKey, lockMode: LockMode) = {
-      // TODO: change
-      val data = new DatabaseEntry
-      BdbOperation(cursor.getCurrent(key, data, lockMode), key -> data)
-    }
-
-    def getCurrentKey(lockMode: LockMode) = {
+    def getCurrentKey(lockMode: LockMode = LockMode.DEFAULT) = {
       val key = new DatabaseEntry
       val data = new DatabaseEntry
-      BdbOperation(cursor.getCurrent(key, data, lockMode), key -> data)
+      BdbOperation(cursor.getCurrent(key, data, lockMode), BdbEntry(key, data))
+    }
+
+    def findKey(key: BdbKey, lockMode: LockMode = LockMode.DEFAULT) = {
+      val data = new DatabaseEntry
+      BdbOperation(cursor.getSearchKeyRange(key, data, lockMode), BdbEntry(key, data))
+    }
+
+    def nextValue(lockMode: LockMode = LockMode.DEFAULT) = {
+      val key = new DatabaseEntry
+      val data = new DatabaseEntry
+      BdbOperation(cursor.getNextDup(key, data, lockMode), BdbEntry(key, data))
+    }
+
+    def nextKey(lockMode: LockMode = LockMode.DEFAULT) = {
+      val key = new DatabaseEntry
+      val data = new DatabaseEntry
+      BdbOperation(cursor.getNextNoDup(key, data, lockMode), BdbEntry(key, data))
     }
   }
 
 
-  implicit class TransactionalDatabase(db: Database)(implicit tx: Transaction) extends BdbOps {
-    def deleteKey(key: DatabaseEntry, permanent: Boolean = true) = {
-      val status = if (permanent) db.delete(tx, key) else db.put(tx, key, deletedEntry)
+  implicit class TransactionalDatabase(val db: Database) extends AnyVal {
+    def deleteKey
+      (key: DatabaseEntry, permanent: Boolean = true)
+      (implicit tx: Transaction) =
+    {
+      val status = if (permanent) db.delete(tx, key) else db.put(tx, key, DeleteFlag)
       BdbOperation(status, key)
     }
 
-    def putKey(key: DatabaseEntry, data: DatabaseEntry) = {
-      BdbOperation(db.put(tx, key, data), key -> data)
+    def putKey
+      (key: DatabaseEntry, data: DatabaseEntry)
+      (implicit tx: Transaction) =
+    {
+      BdbOperation(db.put(tx, key, data), BdbEntry(key, data))
     }
 
-    def getKey(key: DatabaseEntry, lockMode: LockMode) = {
+    def getKey
+      (key: DatabaseEntry, lockMode: LockMode = LockMode.DEFAULT)
+      (implicit tx: Transaction) =
+    {
       val data = new DatabaseEntry
-      BdbOperation(db.get(tx, key, data, lockMode), key -> data)
+      BdbOperation(db.get(tx, key, data, lockMode), BdbEntry(key, data))
     }
   }
 
@@ -117,12 +131,17 @@ trait BdbOperation[+T] {
 
   def flatMap[U](f: T => BdbOperation[U]): BdbOperation[U] = {
     if (isSuccess) f(value)
-    else this.asInstanceOf[BdbOperation[U]]
+    else this.asInstanceOf[BdbOperation[Nothing]]
+  }
+
+  def andThen[U](otherOperation: => BdbOperation[U]): BdbOperation[U] = {
+    if (isSuccess) otherOperation
+    else this.asInstanceOf[BdbOperation[Nothing]]
   }
 
   def map[U](f: T => U): BdbOperation[U] = {
     if (isSuccess) BdbSuccess(f(value))
-    else this.asInstanceOf[BdbOperation[U]]
+    else this.asInstanceOf[BdbOperation[Nothing]]
   }
 
   def foreach(f: T => Unit) = {
