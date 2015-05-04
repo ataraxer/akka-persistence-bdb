@@ -46,10 +46,30 @@ object BdbClient {
       BdbOperation(cursor.getNextDup(key, data, lockMode), BdbEntry(key, data))
     }
 
+    def prevValue(lockMode: LockMode = LockMode.DEFAULT) = {
+      val key = new DatabaseEntry
+      val data = new DatabaseEntry
+      BdbOperation(cursor.getPrevDup(key, data, lockMode), BdbEntry(key, data))
+    }
+
     def nextKey(lockMode: LockMode = LockMode.DEFAULT) = {
       val key = new DatabaseEntry
       val data = new DatabaseEntry
       BdbOperation(cursor.getNextNoDup(key, data, lockMode), BdbEntry(key, data))
+    }
+
+    def prevKey(lockMode: LockMode = LockMode.DEFAULT) = {
+      val key = new DatabaseEntry
+      val data = new DatabaseEntry
+      BdbOperation(cursor.getPrevNoDup(key, data, lockMode), BdbEntry(key, data))
+    }
+
+    def firstValue(lockMode: LockMode = LockMode.DEFAULT) = {
+      while (cursor.prevValue().isSuccess) {}
+    }
+
+    def lastValue(lockMode: LockMode = LockMode.DEFAULT) = {
+      while (cursor.nextValue().isSuccess) {}
     }
   }
 
@@ -155,6 +175,10 @@ trait BdbOperation[+T] {
 
   def getOrElse[U >: T](fallback: => U): U = {
     if (isSuccess) value else fallback
+  }
+
+  def orElse[U >: T](fallback: => BdbOperation[U]): BdbOperation[U] = {
+    if (isSuccess) this else fallback
   }
 
   def withFilter(f: T => Boolean) = filter(f)
