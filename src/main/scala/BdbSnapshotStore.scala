@@ -62,7 +62,7 @@ object BdbSnapshotStore {
 
 
 class BdbSnapshotStore
-  extends BdbEnvironment("bdb-snapshot")
+  extends BdbEnvironment("bdb-snapshot-store")
   with SnapshotStore
 {
   import BdbSnapshotStore._
