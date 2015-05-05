@@ -4,6 +4,7 @@ import akka.actor._
 import akka.testkit._
 import akka.persistence._
 import akka.persistence.journal.JournalSpec
+import akka.persistence.snapshot.SnapshotStoreSpec
 
 import com.typesafe.config.ConfigFactory
 
@@ -14,6 +15,25 @@ import org.scalatest._
 import scala.concurrent.duration._
 
 import java.io.File
+
+
+class BdbSnapshotStoreSpec extends SnapshotStoreSpec {
+  lazy val config = ConfigFactory.parseString(
+    """
+      |akka.persistence.journal.plugin = "bdb-journal"
+      |akka.persistence.snapshot-store.plugin = "bdb-snapshot"
+      |akka.persistence.publish-plugin-commands = on
+      |akka.persistence.publish-confirmations = on
+      |bdb-journal.dir = "target/journal"
+      |bdb-snapshot.dir = "target/snapshots"
+    """.stripMargin)
+
+  protected override def afterAll(): Unit = {
+    FileUtils.deleteDirectory(new File(config.getString("bdb-journal.dir")))
+    FileUtils.deleteDirectory(new File(config.getString("bdb-snapshot.dir")))
+    super.afterAll()
+  }
+}
 
 
 object BdbJournalSpec {
@@ -49,9 +69,9 @@ object BdbJournalSpec {
 
 
 class BdbJournalSpec
-  extends JournalSpec
+  extends WordSpecLike
+  with JournalSpec
   with ImplicitSender
-  with WordSpecLike
   with Matchers
 {
   import BdbJournalSpec._
