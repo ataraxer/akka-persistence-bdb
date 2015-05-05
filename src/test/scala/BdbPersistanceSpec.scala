@@ -21,16 +21,16 @@ class BdbSnapshotStoreSpec extends SnapshotStoreSpec {
   lazy val config = ConfigFactory.parseString(
     """
       |akka.persistence.journal.plugin = "bdb-journal"
-      |akka.persistence.snapshot-store.plugin = "bdb-snapshot"
+      |akka.persistence.snapshot-store.plugin = "bdb-snapshot-store"
       |akka.persistence.publish-plugin-commands = on
       |akka.persistence.publish-confirmations = on
       |bdb-journal.dir = "target/journal"
-      |bdb-snapshot.dir = "target/snapshots"
+      |bdb-snapshot-store.dir = "target/snapshots"
     """.stripMargin)
 
   protected override def afterAll(): Unit = {
     FileUtils.deleteDirectory(new File(config.getString("bdb-journal.dir")))
-    FileUtils.deleteDirectory(new File(config.getString("bdb-snapshot.dir")))
+    FileUtils.deleteDirectory(new File(config.getString("bdb-snapshot-store.dir")))
     super.afterAll()
   }
 }
