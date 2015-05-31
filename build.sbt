@@ -44,6 +44,7 @@ libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-persistence-experimental" % "2.3.6" % "compile",
   "com.typesafe.akka" %% "akka-persistence-tck-experimental" % "2.3.6" % "test",
   "com.typesafe.akka" %% "akka-testkit" % "2.3.4" % "test",
+  "com.typesafe" % "config" % "1.2.1",
   "org.scalatest" %% "scalatest" % "2.1.4" % "test",
   "commons-io" % "commons-io" % "2.4" % "test",
   "commons-codec" % "commons-codec" % "1.9" % "compile")

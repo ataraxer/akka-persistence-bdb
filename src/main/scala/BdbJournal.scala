@@ -8,6 +8,7 @@ import akka.persistence.{PersistentConfirmation, PersistentId, PersistentRepr}
 import akka.serialization.SerializationExtension
 
 import com.sleepycat.je._
+import com.sleepycat.je.rep._
 
 import scala.annotation.tailrec
 import scala.collection.mutable
@@ -15,13 +16,17 @@ import scala.collection.immutable.Seq
 
 
 class BdbJournal
-  extends BdbEnvironment("bdb-journal")
+  extends Actor
   with SyncWriteJournal
   with BdbReplay
 {
   import BdbClient._
 
+  val config = context.system.settings.config.getConfig("bdb-journal")
+
   val serialization = SerializationExtension(context.system)
+
+  val environment = BdbPersistence(context.system)
 
 
   private[bdb] implicit val txConfig = {
@@ -33,16 +38,7 @@ class BdbJournal
   }
 
 
-  private[bdb] val db = {
-    val dbConfig = {
-      new DatabaseConfig()
-      .setAllowCreate(true)
-      .setTransactional(true)
-      .setSortedDuplicates(true)
-    }
-
-    env.openDatabase(NoTransaction, "journal", dbConfig)
-  }
+  private[bdb] val db = environment.openDatabase("journal")
 
 
   override def postStop(): Unit = {

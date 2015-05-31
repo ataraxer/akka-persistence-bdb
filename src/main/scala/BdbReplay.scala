@@ -91,6 +91,11 @@ trait BdbReplay {
 
 
     Future {
+      if (!environment.isMaster) {
+        throw new Exception(
+          "Persistence actor backed by replicated BDB JE can be started only on master node.")
+      }
+
       db withTransactionalCursor { cursor =>
         if (cursor.findKey(keyFor(persistenceId, fromSequenceNr)).isSuccess) {
           replay(cursor, persistenceId, 0L)

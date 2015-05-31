@@ -24,13 +24,11 @@ class BdbSnapshotStoreSpec extends SnapshotStoreSpec {
       |akka.persistence.snapshot-store.plugin = "bdb-snapshot-store"
       |akka.persistence.publish-plugin-commands = on
       |akka.persistence.publish-confirmations = on
-      |bdb-journal.dir = "target/journal"
-      |bdb-snapshot-store.dir = "target/snapshots"
+      |bdb-persistence.dir = "target/replication"
     """.stripMargin)
 
   protected override def afterAll(): Unit = {
-    FileUtils.deleteDirectory(new File(config.getString("bdb-journal.dir")))
-    FileUtils.deleteDirectory(new File(config.getString("bdb-snapshot-store.dir")))
+    FileUtils.deleteDirectory(new File(config.getString("bdb-persistence.dir")))
     super.afterAll()
   }
 }
@@ -82,7 +80,7 @@ class BdbJournalSpec
       |akka.persistence.snapshot-store.local.dir = "target/snapshots"
       |akka.persistence.publish-plugin-commands = on
       |akka.persistence.publish-confirmations = on
-      |bdb-journal.dir = "target/journal"
+      |bdb-persistence.dir = "target/replication"
     """.stripMargin)
 
 
@@ -113,7 +111,7 @@ class BdbJournalSpec
 
   protected override def afterAll(): Unit = {
     FileUtils.deleteDirectory(new File(config.getString("akka.persistence.snapshot-store.local.dir")))
-    FileUtils.deleteDirectory(new File(config.getString("bdb-journal.dir")))
+    FileUtils.deleteDirectory(new File(config.getString("bdb-persistence.dir")))
     super.afterAll()
   }
 }

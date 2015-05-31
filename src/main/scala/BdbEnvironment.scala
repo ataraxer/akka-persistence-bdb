@@ -11,21 +11,28 @@ import akka.serialization.SerializationExtension
 import com.sleepycat.je._
 import com.sleepycat.je.rep._
 
+import com.typesafe.config.Config
+
 import scala.collection.JavaConversions._
 
 import java.util.concurrent.TimeUnit
 
 
-abstract class BdbEnvironment(configPath: String) extends Actor {
-  private[bdb] val config = context.system.settings.config.getConfig(configPath)
+object BdbEnvironment {
+  def apply(config: Config): BdbEnvironment = new BdbEnvironment(config)
+}
+
+
+final class BdbEnvironment(config: Config) {
+  val isReplicated = config.getBoolean("replication.enabled")
 
 
   private[bdb] val env: Environment = {
     import EnvironmentConfig._
 
-    val journalDir = new File(config.getString("dir"))
+    val directory = new File(config.getString("dir"))
 
-    journalDir.mkdirs()
+    directory.mkdirs()
 
 
     val envConfig = {
@@ -55,19 +62,19 @@ abstract class BdbEnvironment(configPath: String) extends Actor {
     }
 
 
-    if (config.getBoolean("replication.enabled")) {
+    if (isReplicated) {
       val replicationConfig = {
         val result = new ReplicationConfig
 
         /* Set consistency policy for replica. */
         val consistencyPolicy = new TimeConsistencyPolicy(
           1, TimeUnit.SECONDS, /* 1 sec of lag */
-          3, TimeUnit.SECONDS  /* Wait up to 3 sec */);
+          3, TimeUnit.SECONDS  /* Wait up to 3 sec */)
 
-        result.setConsistencyPolicy(consistencyPolicy);
+        result.setConsistencyPolicy(consistencyPolicy)
 
         /* Wait up to two seconds for commit acknowledgments. */
-        result.setReplicaAckTimeout(2, TimeUnit.SECONDS);
+        result.setReplicaAckTimeout(2, TimeUnit.SECONDS)
 
         result.setGroupName(config.getString("replication.group-name"))
         result.setNodeName(config.getString("replication.node-name"))
@@ -80,17 +87,35 @@ abstract class BdbEnvironment(configPath: String) extends Actor {
         result
       }
 
-
-      new ReplicatedEnvironment(journalDir, replicationConfig, envConfig)
+      new ReplicatedEnvironment(directory, replicationConfig, envConfig)
     } else {
-      new Environment(journalDir, envConfig)
+      new Environment(directory, envConfig)
     }
   }
 
 
-  override def postStop(): Unit = {
+  def openDatabase(name: String) = {
+    val dbConfig = {
+      new DatabaseConfig()
+      .setAllowCreate(isMaster)
+      .setTransactional(true)
+      .setSortedDuplicates(true)
+    }
+
+    env.openDatabase(BdbClient.NoTransaction, name, dbConfig)
+  }
+
+
+  def isMaster = {
+    env match {
+      case replicatedEnv: ReplicatedEnvironment => replicatedEnv.getState.isMaster
+      case _ => true
+    }
+  }
+
+
+  def shutdown(): Unit = {
     env.close()
-    super.postStop()
   }
 }
 

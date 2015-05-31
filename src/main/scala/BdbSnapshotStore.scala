@@ -62,11 +62,15 @@ object BdbSnapshotStore {
 
 
 class BdbSnapshotStore
-  extends BdbEnvironment("bdb-snapshot-store")
+  extends Actor
   with SnapshotStore
 {
   import BdbSnapshotStore._
   import BdbClient._
+
+  val config = context.system.settings.config.getConfig("bdb-snapshot-store")
+
+  val environment = BdbPersistence(context.system)
 
   implicit val serialization = SerializationExtension(context.system)
 
@@ -92,7 +96,7 @@ class BdbSnapshotStore
       .setSortedDuplicates(true)
     }
 
-    env.openDatabase(NoTransaction, "snapshots", dbConfig)
+    environment.openDatabase("snapshots")
   }
 
 
